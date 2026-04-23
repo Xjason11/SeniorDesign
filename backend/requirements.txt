@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+numpy
+opencv-python
+mediapipe
+yt-dlp
+
+# Install PyTorch separately for the target machine.
+# Example (CPU-only): https://pytorch.org/get-started/locally/
+torch

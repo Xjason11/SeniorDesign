@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "ASL Conversation Assistant",
+    "slug": "asl-conversation-assistant",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "aslconversation",
+    "splash": {
+      "backgroundColor": "#F7FAFC"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow camera access to preview signs for the sign recognition prototype."
+      }
+    },
+    "android": {
+      "permissions": [
+        "CAMERA",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "CAMERA",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.anonymous.aslconversationassistant"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow camera access to preview signs for the sign recognition prototype."
+        }
+      ]
+    ]
+  }
+}
