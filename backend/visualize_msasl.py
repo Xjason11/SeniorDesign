@@ -110,7 +110,7 @@ def main() -> None:
     parser.add_argument(
         "--dataset-dir",
         type=Path,
-        default=Path(r"C:\Users\jcana\Downloads\MS-ASL\MS-ASL"),
+        default=Path("MS-ASL"),
     )
     parser.add_argument("--cache-dir", type=Path, default=Path(__file__).resolve().parent / "data" / "msasl_videos")
     parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parent / "reports" / "msasl_examples")

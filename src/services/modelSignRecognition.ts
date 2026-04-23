@@ -1,6 +1,6 @@
 import { RecognizedSign } from "../types/sign";
 
-const modelApiUrl = "http://192.168.0.21:8000";
+const modelApiUrl = process.env.EXPO_PUBLIC_MODEL_API_URL ?? "http://127.0.0.1:8000";
 
 type ModelRecognitionResponse = {
   token: RecognizedSign["token"];

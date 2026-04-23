@@ -3,6 +3,8 @@ node_modules/
 .expo-shared/
 .venv/
 .vscode/
+.env
+.env.local
 __pycache__/
 *.py[cod]
 *.log

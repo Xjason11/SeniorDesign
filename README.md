@@ -90,6 +90,14 @@ If Expo asks to align dependency versions, run:
 npx.cmd expo install expo-camera expo-speech
 ```
 
+To point the mobile app at your backend, create a local `.env` file in the repo root with:
+
+```text
+EXPO_PUBLIC_MODEL_API_URL=http://YOUR-PC-LAN-IP:8000
+```
+
+Use your own computer's LAN IP when testing from a phone on the same network.
+
 ## ROCm Backend
 
 The backend runs on your Windows PC and the Expo app calls it over your local network.
@@ -124,10 +132,10 @@ Verify the API:
 Invoke-RestMethod http://localhost:8000/health | ConvertTo-Json -Depth 5
 ```
 
-When running on a phone, `src/services/modelSignRecognition.ts` must point to your PC's LAN IP. This machine was configured as:
+When running on a phone, set `EXPO_PUBLIC_MODEL_API_URL` to your PC's LAN IP. For example:
 
 ```text
-http://192.168.0.21:8000
+http://192.168.1.25:8000
 ```
 
 To collect a real landmark dataset, start the backend, open the app, choose a token in `Train snapshot recognizer`, and tap `Add` while holding that sign clearly in frame. Each successful backend capture is saved to:
@@ -150,7 +158,7 @@ backend/models/sign_classifier.pt
 
 Restart the backend after training so `/recognize` uses the saved classifier.
 
-You can also seed the backend dataset from MS-ASL metadata in Downloads:
+You can also seed the backend dataset from an extracted `MS-ASL` folder:
 
 ```powershell
 python -m backend.prepare_msasl --max-per-token 20 --frames-per-clip 3

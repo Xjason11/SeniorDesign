@@ -143,7 +143,7 @@ def main() -> None:
     parser.add_argument(
         "--dataset-dir",
         type=Path,
-        default=Path(r"C:\Users\jcana\Downloads\MS-ASL\MS-ASL"),
+        default=Path("MS-ASL"),
     )
     parser.add_argument("--split", default="train", choices=["train", "val", "test"])
     parser.add_argument("--max-per-token", type=int, default=20)
