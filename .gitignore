@@ -13,6 +13,7 @@ tmp/
 coverage/
 android/.gradle/
 android/app/build/
+android/app/debug.keystore
 android/build/
 dist/
 npm-debug.log*
