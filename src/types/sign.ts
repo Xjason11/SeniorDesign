@@ -21,6 +21,15 @@ export type SavedPhrase = {
   createdAt: Date;
 };
 
+export type ConversationMessage = {
+  id: string;
+  speaker: "signer" | "partner";
+  text: string;
+  createdAt: Date;
+  confidence?: number;
+  source?: RecognizedSign["source"];
+};
+
 export type TrainingSample = {
   id: string;
   token: SignToken;

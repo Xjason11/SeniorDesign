@@ -7,8 +7,10 @@ import { CameraRef, useCameraDevice, useCameraPermission } from "react-native-vi
 import { AppHeader } from "./src/components/AppHeader";
 import { CameraPanel } from "./src/components/CameraPanel";
 import { CaptureRecognitionCard } from "./src/components/CaptureRecognitionCard";
+import { ConversationCard } from "./src/components/ConversationCard";
 import { ControlBar } from "./src/components/ControlBar";
 import { DemoControls } from "./src/components/DemoControls";
+import { DisplayMode, DisplayModeSelector } from "./src/components/DisplayModeSelector";
 import { LiveDebugStrip } from "./src/components/LiveDebugStrip";
 import { PredictionFeedbackCard } from "./src/components/PredictionFeedbackCard";
 import { SavedPhrases } from "./src/components/SavedPhrases";
@@ -26,7 +28,10 @@ import { assemblePhrase } from "./src/services/phraseAssembler";
 import { recognizeSignFromSnapshot } from "./src/services/snapshotSignRecognition";
 import { colors } from "./src/theme/colors";
 import { spacing } from "./src/theme/spacing";
-import { RecognizedSign, SavedPhrase, SignToken, TrainingSample } from "./src/types/sign";
+import { ConversationMessage, RecognizedSign, SavedPhrase, SignToken, TrainingSample } from "./src/types/sign";
+
+const SIGNED_UTTERANCE_STABILITY_MS = 1200;
+const SIGNED_UTTERANCE_REPEAT_COOLDOWN_MS = 4500;
 
 export default function App() {
   const cameraRef = useRef<CameraRef | null>(null);
@@ -35,6 +40,9 @@ export default function App() {
   const cameraDevice = useCameraDevice(cameraFacing);
   const [tokens, setTokens] = useState<SignToken[]>([]);
   const [latestSign, setLatestSign] = useState<RecognizedSign>();
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("translation");
+  const [isDisplayModeOpen, setIsDisplayModeOpen] = useState(false);
+  const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
   const [savedPhrases, setSavedPhrases] = useState<SavedPhrase[]>([]);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [demoStep, setDemoStep] = useState(0);
@@ -51,6 +59,15 @@ export default function App() {
   const lastLiveTokenRef = useRef<SignToken | undefined>(undefined);
   const lastLiveAcceptedAtRef = useRef(0);
   const liveLoopTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pendingSignedPhraseRef = useRef<{
+    firstSeenAt: number;
+    latestSign: RecognizedSign;
+    text: string;
+  } | undefined>(undefined);
+  const lastCommittedSignedPhraseRef = useRef<{
+    committedAt: number;
+    text: string;
+  } | undefined>(undefined);
 
   const translatedText = useMemo(() => assemblePhrase(tokens), [tokens]);
   const sampleCountByToken = useMemo(() => getSampleCounts(trainingSamples), [trainingSamples]);
@@ -68,6 +85,14 @@ export default function App() {
 
     return () => clearInterval(timer);
   }, [demoStep, isDemoMode]);
+
+  useEffect(() => {
+    if (!latestSign || !translatedText) {
+      return;
+    }
+
+    maybeCommitSignedConversationMessage(translatedText, latestSign);
+  }, [latestSign, translatedText]);
 
   useEffect(() => {
     if (!isLiveMode) {
@@ -120,6 +145,81 @@ export default function App() {
   function handleRecognizedSign(detectedSign: RecognizedSign) {
     setLatestSign(detectedSign);
     setTokens((currentTokens) => [...currentTokens, detectedSign.token].slice(-5));
+  }
+
+  function addSignedConversationMessage(text: string, detectedSign: RecognizedSign) {
+    if (!text) {
+      return;
+    }
+
+    setConversationMessages((messages) => {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage?.speaker === "signer" && lastMessage.text === text) {
+        return messages;
+      }
+
+      const message: ConversationMessage = {
+        confidence: detectedSign.confidence,
+        createdAt: new Date(),
+        id: `${Date.now()}-${detectedSign.token}`,
+        source: detectedSign.source,
+        speaker: "signer",
+        text
+      };
+
+      return [...messages, message].slice(-20);
+    });
+  }
+
+  function maybeCommitSignedConversationMessage(text: string, detectedSign: RecognizedSign) {
+    const now = Date.now();
+    const pendingPhrase = pendingSignedPhraseRef.current;
+    const lastCommittedPhrase = lastCommittedSignedPhraseRef.current;
+
+    if (!pendingPhrase || pendingPhrase.text !== text) {
+      pendingSignedPhraseRef.current = {
+        firstSeenAt: now,
+        latestSign: detectedSign,
+        text
+      };
+      return;
+    }
+
+    pendingSignedPhraseRef.current = {
+      ...pendingPhrase,
+      latestSign: detectedSign
+    };
+
+    if (now - pendingPhrase.firstSeenAt < SIGNED_UTTERANCE_STABILITY_MS) {
+      return;
+    }
+
+    if (
+      lastCommittedPhrase?.text === text &&
+      now - lastCommittedPhrase.committedAt < SIGNED_UTTERANCE_REPEAT_COOLDOWN_MS
+    ) {
+      return;
+    }
+
+    lastCommittedSignedPhraseRef.current = {
+      committedAt: now,
+      text
+    };
+    addSignedConversationMessage(text, detectedSign);
+  }
+
+  function handleAddPartnerMessage(text: string) {
+    const message: ConversationMessage = {
+      createdAt: new Date(),
+      id: `${Date.now()}-partner`,
+      speaker: "partner",
+      text
+    };
+
+    setConversationMessages((messages) => [
+      ...messages,
+      message
+    ].slice(-20));
   }
 
   function handleFlipCamera() {
@@ -297,6 +397,8 @@ export default function App() {
     Speech.stop();
     setTokens([]);
     setLatestSign(undefined);
+    pendingSignedPhraseRef.current = undefined;
+    lastCommittedSignedPhraseRef.current = undefined;
     setDemoStep(0);
     setIsLiveMode(false);
     setLastCaptureBase64(undefined);
@@ -412,7 +514,24 @@ export default function App() {
           onAcceptPrediction={handleAcceptPrediction}
           onCorrectPrediction={handleCorrectPrediction}
         />
-        <TranslationCard latestSign={latestSign} tokens={tokens} translatedText={translatedText} />
+        <DisplayModeSelector
+          isOpen={isDisplayModeOpen}
+          mode={displayMode}
+          onSelectMode={(mode) => {
+            setDisplayMode(mode);
+            setIsDisplayModeOpen(false);
+          }}
+          onToggleOpen={() => setIsDisplayModeOpen((isOpen) => !isOpen)}
+        />
+        {displayMode === "translation" ? (
+          <TranslationCard latestSign={latestSign} tokens={tokens} translatedText={translatedText} />
+        ) : (
+          <ConversationCard
+            messages={conversationMessages}
+            onAddPartnerMessage={handleAddPartnerMessage}
+            onClearConversation={() => setConversationMessages([])}
+          />
+        )}
         <ControlBar
           canUseOutput={translatedText.length > 0}
           onClear={handleClear}
