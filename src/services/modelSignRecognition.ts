@@ -1,6 +1,6 @@
 import { RecognizedSign } from "../types/sign";
 
-const modelApiUrl = process.env.EXPO_PUBLIC_MODEL_API_URL ?? "http://127.0.0.1:8000";
+const modelApiUrl = "http://192.168.0.21:8000";
 
 type ModelRecognitionResponse = {
   token: RecognizedSign["token"];
@@ -22,16 +22,21 @@ export async function recognizeSignWithModel(
 ): Promise<RecognizedSign | undefined> {
   const endpoint = options?.liveMode ? "recognize-live" : "recognize";
   const startedAt = Date.now();
-  const response = await fetch(`${modelApiUrl}/${endpoint}`, {
-    body: JSON.stringify({ image_base64: base64Image }),
-    headers: {
-      "Content-Type": "application/json"
-    },
-    method: "POST"
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${modelApiUrl}/${endpoint}`, {
+      body: JSON.stringify({ image_base64: base64Image }),
+      headers: {
+        "Content-Type": "application/json"
+      },
+      method: "POST"
+    });
+  } catch (error) {
+    throw new Error(`Could not reach ${modelApiUrl}/${endpoint}: ${getErrorMessage(error)}`);
+  }
 
   if (!response.ok) {
-    return undefined;
+    throw new Error(`Backend returned ${response.status} for ${endpoint}.`);
   }
 
   const result = (await response.json()) as ModelRecognitionResponse;
@@ -62,16 +67,21 @@ export async function recognizeSignSequenceWithModel(
   options?: { liveMode?: boolean }
 ): Promise<RecognizedSign | undefined> {
   const startedAt = Date.now();
-  const response = await fetch(`${modelApiUrl}/recognize-sequence`, {
-    body: JSON.stringify({ frames_base64: framesBase64, live_mode: Boolean(options?.liveMode) }),
-    headers: {
-      "Content-Type": "application/json"
-    },
-    method: "POST"
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${modelApiUrl}/recognize-sequence`, {
+      body: JSON.stringify({ frames_base64: framesBase64, live_mode: Boolean(options?.liveMode) }),
+      headers: {
+        "Content-Type": "application/json"
+      },
+      method: "POST"
+    });
+  } catch (error) {
+    throw new Error(`Could not reach ${modelApiUrl}/recognize-sequence: ${getErrorMessage(error)}`);
+  }
 
   if (!response.ok) {
-    return undefined;
+    throw new Error(`Backend returned ${response.status} for recognize-sequence.`);
   }
 
   const result = (await response.json()) as ModelRecognitionResponse;
@@ -122,4 +132,12 @@ export async function saveModelSequenceTrainingSample(
   });
 
   return response.ok;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return "Unknown error";
 }

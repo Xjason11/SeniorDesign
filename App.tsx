@@ -141,12 +141,16 @@ export default function App() {
       const photo = await takeFeatureSequence(options);
       setLastCaptureBase64(photo.base64);
       setLastCaptureFramesBase64(photo.framesBase64);
+      let modelSign: RecognizedSign | undefined;
+      let modelErrorMessage: string | undefined;
 
-      const modelSign =
-        (await recognizeSignSequenceWithModel(photo.framesBase64, { liveMode: options?.liveMode }).catch(
-          () => undefined
-        )) ??
-        (await recognizeSignWithModel(photo.base64, { liveMode: options?.liveMode }).catch(() => undefined));
+      try {
+        modelSign =
+          (await recognizeSignSequenceWithModel(photo.framesBase64, { liveMode: options?.liveMode })) ??
+          (await recognizeSignWithModel(photo.base64, { liveMode: options?.liveMode }));
+      } catch (error) {
+        modelErrorMessage = formatErrorMessage(error);
+      }
       const recognizedSign =
         modelSign ??
         (await recognizeSignFromSnapshot({
@@ -155,6 +159,10 @@ export default function App() {
         }));
 
       if (!recognizedSign) {
+        if (modelErrorMessage) {
+          setRecognitionMessage(`Model request failed: ${modelErrorMessage}`);
+          return;
+        }
         if (!options?.liveMode) {
           setRecognitionMessage(
             "No confident sign match yet. Add more labeled examples with the same camera framing and lighting."
@@ -432,6 +440,14 @@ export default function App() {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function formatErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return "Unknown error";
 }
 
 function findLastSampleIndex(samples: TrainingSample[], token: SignToken): number {
