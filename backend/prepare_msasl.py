@@ -8,19 +8,13 @@ from typing import Any
 import cv2
 from yt_dlp import YoutubeDL
 
+from .asl_vocabulary_reference import get_dataset_label_to_token
 from .samples import append_sample, get_sample_counts
 from .sign_model import TOKENS
 from .vision import extract_hand_landmarks_from_bgr
 
 
-MSASL_TO_TOKEN = {
-    "hello": "HELLO",
-    "thanks": "THANK_YOU",
-    "help": "HELP",
-    "water": "WATER",
-    "yes": "YES",
-    "no": "NO",
-}
+MSASL_TO_TOKEN = get_dataset_label_to_token()
 
 
 def prepare_msasl(

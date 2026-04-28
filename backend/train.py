@@ -7,7 +7,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from .samples import get_sample_counts, load_samples
-from .sign_model import MODEL_PATH, TOKENS, SignClassifier, get_device
+from .sign_model import MODEL_PATH, TOKENS, SignClassifier, get_device, normalize_model_landmark_vector
 
 
 def train(epochs: int = 250, batch_size: int = 16, learning_rate: float = 0.001) -> None:
@@ -18,7 +18,7 @@ def train(epochs: int = 250, batch_size: int = 16, learning_rate: float = 0.001)
     labels = {token: index for index, token in enumerate(TOKENS)}
     random.shuffle(rows)
 
-    x = torch.tensor([row["landmarks"] for row in rows], dtype=torch.float32)
+    x = torch.tensor([normalize_model_landmark_vector(row["landmarks"]) for row in rows], dtype=torch.float32)
     y = torch.tensor([labels[row["token"]] for row in rows], dtype=torch.long)
 
     dataset = TensorDataset(x, y)

@@ -7,7 +7,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from .sequence_samples import get_sequence_sample_counts, load_sequence_samples
-from .sign_model import SEQUENCE_MODEL_PATH, TOKENS, SignSequenceClassifier, get_device
+from .sign_model import SEQUENCE_MODEL_PATH, TOKENS, SignSequenceClassifier, get_device, normalize_model_landmark_sequence
 
 
 def train_sequence(epochs: int = 250, batch_size: int = 12, learning_rate: float = 0.001) -> None:
@@ -18,7 +18,7 @@ def train_sequence(epochs: int = 250, batch_size: int = 12, learning_rate: float
     labels = {token: index for index, token in enumerate(TOKENS)}
     random.shuffle(rows)
 
-    x = torch.tensor([row["frames"] for row in rows], dtype=torch.float32)
+    x = torch.tensor([normalize_model_landmark_sequence(row["frames"]) for row in rows], dtype=torch.float32)
     y = torch.tensor([labels[row["token"]] for row in rows], dtype=torch.long)
 
     dataset = TensorDataset(x, y)

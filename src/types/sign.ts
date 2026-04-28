@@ -1,12 +1,77 @@
-export type SignToken = "HELLO" | "THANK_YOU" | "HELP" | "WATER" | "YES" | "NO";
+export type SignToken =
+  | "HELLO"
+  | "THANK_YOU"
+  | "HELP"
+  | "WATER"
+  | "YES"
+  | "NO"
+  | "BATHROOM"
+  | "DOCTOR"
+  | "PAIN"
+  | "STOP"
+  | "WAIT"
+  | "WRITE"
+  | "CALL"
+  | "WHERE"
+  | "NOW"
+  | "PLEASE"
+  | "FOOD"
+  | "EAT"
+  | "MORE"
+  | "AGAIN"
+  | "SORRY"
+  | "GOOD"
+  | "BAD"
+  | "NAME"
+  | "WHAT"
+  | "WHO"
+  | "WHY"
+  | "HOW"
+  | "WHEN"
+  | "HOME"
+  | "SCHOOL"
+  | "WORK"
+  | "FAMILY"
+  | "MOTHER"
+  | "FATHER"
+  | "FRIEND"
+  | "TEACHER"
+  | "STUDENT"
+  | "LEARN"
+  | "UNDERSTAND"
+  | "SICK"
+  | "MEDICINE"
+  | "HOSPITAL"
+  | "GO"
+  | "COME"
+  | "WANT"
+  | "NEED"
+  | "LIKE"
+  | "HAPPY"
+  | "SAD";
+
+export type PredictionAlternative = {
+  token: SignToken;
+  label: string;
+  confidence: number;
+};
+
+export type LandmarkPoint = {
+  hand?: number;
+  index?: number;
+  x: number;
+  y: number;
+};
 
 export type RecognizedSign = {
   token: SignToken;
   label: string;
   confidence: number;
-  source?: "manual" | "demo" | "snapshot" | "model";
+  alternatives?: PredictionAlternative[];
+  source?: "manual" | "model";
   mode?: "single" | "sequence" | "ensemble";
   handDetected?: boolean;
+  landmarkPoints?: LandmarkPoint[];
   landmarkCount?: number;
   latencyMs?: number;
   singleFrameToken?: SignToken;
@@ -30,8 +95,8 @@ export type ConversationMessage = {
   source?: RecognizedSign["source"];
 };
 
-export type TrainingSample = {
+export type QuickPhraseEnvironment = {
   id: string;
-  token: SignToken;
-  features: number[];
+  name: string;
+  phrases: string[];
 };

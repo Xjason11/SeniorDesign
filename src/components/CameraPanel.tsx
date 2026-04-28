@@ -4,6 +4,9 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Camera, CameraRef } from "react-native-vision-camera";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
+import { LandmarkPoint } from "../types/sign";
+
+const visibleLandmarkIndexes = new Set([0, 2, 5, 8, 9, 12, 13, 16, 17, 20]);
 
 type CameraPanelProps = {
   cameraRef: RefObject<CameraRef | null>;
@@ -11,6 +14,7 @@ type CameraPanelProps = {
   hasPermission: boolean;
   isPermissionReady: boolean;
   isDeviceReady: boolean;
+  landmarkPoints?: LandmarkPoint[];
   onFlipCamera: () => void;
   onRequestPermission: () => void;
 };
@@ -21,9 +25,14 @@ export function CameraPanel({
   hasPermission,
   isPermissionReady,
   isDeviceReady,
+  landmarkPoints = [],
   onFlipCamera,
   onRequestPermission
 }: CameraPanelProps) {
+  const visibleLandmarkPoints = landmarkPoints.filter((point) =>
+    visibleLandmarkIndexes.has(point.index ?? 0)
+  );
+
   if (!isPermissionReady) {
     return (
       <View style={[styles.container, styles.centered]}>
@@ -54,8 +63,28 @@ export function CameraPanel({
   return (
     <View style={styles.container}>
       <Camera device={facing} enableLowLightBoost isActive ref={cameraRef} resizeMode="cover" style={styles.camera} />
+      {visibleLandmarkPoints.length > 0 ? (
+        <View pointerEvents="none" style={styles.landmarkOverlay}>
+          {visibleLandmarkPoints.map((point, index) => (
+            <View
+              key={`${index}-${point.x}-${point.y}`}
+              style={[
+                styles.landmarkDot,
+                point.hand === 1 && styles.secondHandDot,
+                {
+                  left: `${clamp(point.x * 100, 0, 100)}%`,
+                  top: `${clamp(point.y * 100, 0, 100)}%`
+                }
+              ]}
+            />
+          ))}
+        </View>
+      ) : null}
       <View style={styles.badge}>
-        <Text style={styles.badgeText}>{facing === "front" ? "Front" : "Back"} camera preview</Text>
+        <Text style={styles.badgeText}>
+          {facing === "front" ? "Front" : "Back"} camera preview
+          {landmarkPoints.length > 0 ? ` - ${landmarkPoints.length} tracked / ${visibleLandmarkPoints.length} shown` : ""}
+        </Text>
       </View>
       <TouchableOpacity
         accessibilityLabel="Flip camera"
@@ -68,6 +97,10 @@ export function CameraPanel({
       </TouchableOpacity>
     </View>
   );
+}
+
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 const styles = StyleSheet.create({
@@ -84,6 +117,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: spacing.lg
+  },
+  landmarkOverlay: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0
+  },
+  landmarkDot: {
+    backgroundColor: "#38D979",
+    borderColor: "rgba(255, 255, 255, 0.92)",
+    borderRadius: 5,
+    borderWidth: 1,
+    height: 9,
+    marginLeft: -4.5,
+    marginTop: -4.5,
+    position: "absolute",
+    width: 9
+  },
+  secondHandDot: {
+    backgroundColor: "#54A3FF"
   },
   cameraText: {
     color: colors.surface,

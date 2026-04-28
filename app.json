@@ -12,7 +12,9 @@
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
-        "NSCameraUsageDescription": "Allow camera access to preview signs for the sign recognition prototype."
+        "NSCameraUsageDescription": "Allow camera access to preview signs for the sign recognition prototype.",
+        "NSMicrophoneUsageDescription": "Allow microphone access to log spoken partner replies in the conversation.",
+        "NSSpeechRecognitionUsageDescription": "Allow speech recognition to transcribe spoken partner replies."
       }
     },
     "android": {
@@ -31,6 +33,16 @@
         "expo-camera",
         {
           "cameraPermission": "Allow camera access to preview signs for the sign recognition prototype."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow microphone access to log spoken partner replies in the conversation.",
+          "speechRecognitionPermission": "Allow speech recognition to transcribe spoken partner replies.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
         }
       ]
     ]

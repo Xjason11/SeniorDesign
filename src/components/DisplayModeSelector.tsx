@@ -3,7 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 
-export type DisplayMode = "translation" | "conversation";
+export type DisplayMode = "translation" | "conversation" | "quickPhrases" | "voice" | "vocabulary" | "debug";
 
 type DisplayModeSelectorProps = {
   mode: DisplayMode;
@@ -14,11 +14,15 @@ type DisplayModeSelectorProps = {
 
 const modeLabels: Record<DisplayMode, string> = {
   conversation: "Conversation",
-  translation: "Translation"
+  debug: "Debug",
+  quickPhrases: "Quick phrases",
+  translation: "Translation",
+  vocabulary: "Vocabulary",
+  voice: "Voice"
 };
 
 export function DisplayModeSelector({ mode, isOpen, onSelectMode, onToggleOpen }: DisplayModeSelectorProps) {
-  const options: DisplayMode[] = ["translation", "conversation"];
+  const options: DisplayMode[] = ["translation", "quickPhrases", "voice", "vocabulary", "conversation", "debug"];
 
   return (
     <View style={styles.container}>

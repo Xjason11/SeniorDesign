@@ -50,6 +50,19 @@ class SequenceTrainingSampleRequest(BaseModel):
     token: str
 
 
+class PredictionAlternative(BaseModel):
+    token: str
+    label: str
+    confidence: float
+
+
+class LandmarkPoint(BaseModel):
+    hand: int
+    index: int
+    x: float
+    y: float
+
+
 class RecognitionResponse(BaseModel):
     token: str
     label: str
@@ -62,6 +75,8 @@ class RecognitionResponse(BaseModel):
     single_frame_confidence: float | None = None
     sequence_token: str | None = None
     sequence_confidence: float | None = None
+    alternatives: list[PredictionAlternative] = []
+    landmark_points: list[LandmarkPoint] = []
 
 
 class TrainingSampleResponse(BaseModel):
@@ -174,12 +189,15 @@ def _recognize_from_landmarks(landmarks: list[float]):
     model = get_classifier()
 
     if hand_detected and model is not None:
-        token, confidence = predict_sign(model, landmarks)
+        scores = predict_sign_probabilities(model, landmarks)
+        token, confidence = _top_prediction(scores)
         label = TOKEN_LABELS[token]
+        alternatives = _rank_alternatives(scores)
     else:
         token = "HELP"
         label = TOKEN_LABELS[token]
         confidence = 0.58 if hand_detected else 0.35
+        alternatives = []
 
     return RecognitionResponse(
         token=token,
@@ -190,6 +208,8 @@ def _recognize_from_landmarks(landmarks: list[float]):
         mode="single",
         single_frame_token=token if hand_detected else None,
         single_frame_confidence=confidence if hand_detected else None,
+        alternatives=alternatives,
+        landmark_points=_landmark_points(landmarks),
     )
 
 
@@ -236,6 +256,8 @@ def _recognize_from_sequence(landmark_frames: list[list[float]]):
                 single_frame_confidence=single_frame_scores[single_frame_token] if single_frame_token else None,
                 sequence_token=sequence_token,
                 sequence_confidence=sequence_scores[sequence_token] if sequence_token else None,
+                alternatives=_rank_alternatives(fused_scores),
+                landmark_points=_landmark_points(fallback_landmarks),
             )
 
         return _recognize_from_landmarks(fallback_landmarks)
@@ -248,6 +270,41 @@ def _recognize_from_sequence(landmark_frames: list[list[float]]):
         landmark_count=0,
         mode="sequence",
     )
+
+
+def _top_prediction(scores: dict[str, float]) -> tuple[str, float]:
+    token = max(scores, key=scores.get)
+    return token, scores[token]
+
+
+def _rank_alternatives(scores: dict[str, float], limit: int = 3) -> list[PredictionAlternative]:
+    ranked_tokens = sorted(scores, key=scores.get, reverse=True)[:limit]
+    return [
+        PredictionAlternative(
+            token=token,
+            label=TOKEN_LABELS[token],
+            confidence=scores[token],
+        )
+        for token in ranked_tokens
+    ]
+
+
+def _landmark_points(landmarks: list[float]) -> list[LandmarkPoint]:
+    points: list[LandmarkPoint] = []
+    for landmark_index, index in enumerate(range(0, len(landmarks), 3)):
+        if index + 1 >= len(landmarks):
+            continue
+
+        points.append(
+            LandmarkPoint(
+                hand=landmark_index // 21,
+                index=landmark_index % 21,
+                x=landmarks[index],
+                y=landmarks[index + 1],
+            )
+        )
+
+    return points
 
 
 @app.post("/samples", response_model=TrainingSampleResponse)
