@@ -53,6 +53,27 @@ export const availableSignTokens: SignToken[] = [
   "SAD"
 ];
 
+export const demoSignTokens = [
+  "HELLO",
+  "THANK_YOU",
+  "HELP",
+  "WATER",
+  "YES",
+  "NO",
+  "BATHROOM",
+  "WHERE",
+  "DOCTOR",
+  "PLEASE",
+  "GOOD",
+  "BAD"
+] as const satisfies readonly SignToken[];
+
+export type DemoSignToken = (typeof demoSignTokens)[number];
+
+export function isDemoSignToken(token: SignToken | undefined): token is DemoSignToken {
+  return token !== undefined && demoSignTokens.includes(token as DemoSignToken);
+}
+
 export const phase2TargetSignTokens = [
   "BATHROOM",
   "DOCTOR",

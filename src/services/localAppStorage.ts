@@ -16,6 +16,7 @@ export type PersistedAppState = {
     selectedQuickPhraseEnvironmentId: string;
     selectedSpeechVoiceId?: string;
     accessibilityModeEnabled: boolean;
+    demoModeEnabled: boolean;
   };
 };
 
@@ -162,7 +163,8 @@ function normalizePersistedState(state: StoredAppStateV1): PersistedAppState {
       selectedQuickPhraseEnvironmentId,
       selectedSpeechVoiceId:
         typeof state.settings?.selectedSpeechVoiceId === "string" ? state.settings.selectedSpeechVoiceId : undefined,
-      accessibilityModeEnabled: state.settings?.accessibilityModeEnabled === true
+      accessibilityModeEnabled: state.settings?.accessibilityModeEnabled === true,
+      demoModeEnabled: state.settings?.demoModeEnabled !== false
     }
   };
 }

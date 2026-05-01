@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { RefObject } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { Camera, CameraRef } from "react-native-vision-camera";
+import { Camera, CameraDevice, CameraRef } from "react-native-vision-camera";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { LandmarkPoint } from "../types/sign";
@@ -10,6 +10,7 @@ const visibleLandmarkIndexes = new Set([0, 2, 5, 8, 9, 12, 13, 16, 17, 20]);
 
 type CameraPanelProps = {
   cameraRef: RefObject<CameraRef | null>;
+  device?: CameraDevice;
   facing: "front" | "back";
   hasPermission: boolean;
   isPermissionReady: boolean;
@@ -21,6 +22,7 @@ type CameraPanelProps = {
 
 export function CameraPanel({
   cameraRef,
+  device,
   facing,
   hasPermission,
   isPermissionReady,
@@ -52,7 +54,7 @@ export function CameraPanel({
     );
   }
 
-  if (!isDeviceReady) {
+  if (!isDeviceReady || !device) {
     return (
       <View style={[styles.container, styles.centered]}>
         <Text style={styles.cameraText}>Loading the native camera preview...</Text>
@@ -62,7 +64,7 @@ export function CameraPanel({
 
   return (
     <View style={styles.container}>
-      <Camera device={facing} enableLowLightBoost isActive ref={cameraRef} resizeMode="cover" style={styles.camera} />
+      <Camera device={device} enableLowLightBoost isActive ref={cameraRef} resizeMode="cover" style={styles.camera} />
       {visibleLandmarkPoints.length > 0 ? (
         <View pointerEvents="none" style={styles.landmarkOverlay}>
           {visibleLandmarkPoints.map((point, index) => (

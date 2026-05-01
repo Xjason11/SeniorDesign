@@ -6,8 +6,8 @@ export function AppHeader() {
   return (
     <View style={styles.container}>
       <Text style={styles.eyebrow}>Senior Design Prototype</Text>
-      <Text style={styles.title}>ASL Conversation Assistant</Text>
-      <Text style={styles.subtitle}>Short everyday interactions with camera-based sign recognition.</Text>
+      <Text style={styles.title}>Visionary</Text>
+      <Text style={styles.subtitle}>Assistive sign recognition for everyday communication.</Text>
     </View>
   );
 }

@@ -76,10 +76,10 @@ def extract_hand_landmarks_from_bgr(bgr_image: np.ndarray, live_mode: bool = Fal
 def downscale_for_live_inference(bgr_image: np.ndarray) -> np.ndarray:
     height, width = bgr_image.shape[:2]
     max_side = max(height, width)
-    if max_side <= 256:
+    if max_side <= 384:
         return bgr_image
 
-    scale = 256 / max_side
+    scale = 384 / max_side
     resized_width = max(1, int(width * scale))
     resized_height = max(1, int(height * scale))
     return cv2.resize(bgr_image, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
@@ -93,9 +93,9 @@ def get_hand_landmarker() -> vision.HandLandmarker:
         options = vision.HandLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(HAND_LANDMARKER_PATH)),
             num_hands=2,
-            min_hand_detection_confidence=0.5,
-            min_hand_presence_confidence=0.5,
-            min_tracking_confidence=0.5,
+            min_hand_detection_confidence=0.35,
+            min_hand_presence_confidence=0.35,
+            min_tracking_confidence=0.35,
         )
         hand_landmarker = vision.HandLandmarker.create_from_options(options)
 

@@ -1,37 +1,70 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState } from "react";
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
-import { ConversationMessage } from "../types/sign";
+import { ConversationMessage, QuickPhraseEnvironment, RecognizedSign, SignToken } from "../types/sign";
 
 type ConversationCardProps = {
+  canUseSignedMessage?: boolean;
+  editableSignedText?: string;
   interimTranscript: string;
   isCompact?: boolean;
   isListening: boolean;
+  latestSign?: RecognizedSign;
   messages: ConversationMessage[];
   onAddPartnerMessage: (text: string) => void;
+  onChangeSignedText?: (text: string) => void;
   onClearConversation: () => void;
+  onClearSignedMessage?: () => void;
+  onSaveSignedMessage?: () => void;
+  onSelectVariant?: (text: string) => void;
+  onSpeakSignedMessage?: () => void;
   onStartListening: () => void;
   onStopListening: () => void;
   onShareConversation: () => void;
+  onSelectQuickPhraseEnvironment?: (environmentId: string) => void;
+  onSpeakQuickPhrase?: (phrase: string) => void;
+  phraseVariants?: string[];
+  quickPhraseEnvironments?: QuickPhraseEnvironment[];
+  selectedQuickPhraseEnvironmentId?: string;
   speechStatus: string;
+  tokens?: SignToken[];
+  translatedText?: string;
 };
 
 export function ConversationCard({
+  canUseSignedMessage = false,
+  editableSignedText = "",
   interimTranscript,
   isCompact = false,
   isListening,
+  latestSign,
   messages,
   onAddPartnerMessage,
+  onChangeSignedText,
+  onClearSignedMessage,
   onClearConversation,
+  onSaveSignedMessage,
+  onSelectVariant,
   onShareConversation,
+  onSelectQuickPhraseEnvironment,
+  onSpeakQuickPhrase,
+  onSpeakSignedMessage,
   onStartListening,
   onStopListening,
-  speechStatus
+  phraseVariants = [],
+  quickPhraseEnvironments = [],
+  selectedQuickPhraseEnvironmentId,
+  speechStatus,
+  tokens = [],
+  translatedText = ""
 }: ConversationCardProps) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<TextInput>(null);
+  const selectedQuickPhraseEnvironment =
+    quickPhraseEnvironments.find((environment) => environment.id === selectedQuickPhraseEnvironmentId) ??
+    quickPhraseEnvironments[0];
 
   function handleSend() {
     const text = draft.trim();
@@ -81,26 +114,173 @@ export function ConversationCard({
         </View>
       </View>
 
-      <View style={[styles.messages, isCompact && styles.compactMessages]}>
-        {messages.length === 0 ? (
-          <Text style={styles.empty}>Partner replies and signed messages appear here while you stay on camera.</Text>
-        ) : (
-          messages.slice(isCompact ? -4 : -8).map((message) => {
-            const isSigner = message.speaker === "signer";
-            return (
-              <View key={message.id} style={[styles.message, isSigner ? styles.signerMessage : styles.partnerMessage]}>
-                <Text style={[styles.speaker, isSigner ? styles.signerSpeaker : styles.partnerSpeaker]}>
-                  {isSigner ? "Signed" : "Partner"}
-                </Text>
-                <Text style={styles.messageText}>{message.text}</Text>
-                {message.confidence !== undefined ? (
-                  <Text style={styles.meta}>{Math.round(message.confidence * 100)}% confidence</Text>
-                ) : null}
-              </View>
-            );
-          })
-        )}
+      <View style={[styles.messagesShell, isCompact && styles.compactMessages]}>
+        <ScrollView
+          contentContainerStyle={styles.messages}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={messages.length > 4}
+        >
+          {messages.length === 0 ? (
+            <Text style={styles.empty}>Signed and spoken replies will appear here.</Text>
+          ) : (
+            messages.slice(isCompact ? -4 : -10).reverse().map((message) => {
+              const isSigner = message.speaker === "signer";
+              return (
+                <View key={message.id} style={[styles.message, isSigner ? styles.signerMessage : styles.partnerMessage]}>
+                  <Text style={[styles.speaker, isSigner ? styles.signerSpeaker : styles.partnerSpeaker]}>
+                    {isSigner ? "Signed" : "Partner"}
+                  </Text>
+                  <Text style={styles.messageText}>{message.text}</Text>
+                  {message.confidence !== undefined ? (
+                    <Text style={styles.meta}>{Math.round(message.confidence * 100)}% confidence</Text>
+                  ) : null}
+                </View>
+              );
+            })
+          )}
+        </ScrollView>
       </View>
+
+      {!isCompact ? (
+        <View style={styles.signedComposer}>
+          <View style={styles.signedComposerHeader}>
+            <View>
+              <Text style={styles.sectionLabel}>Signed message</Text>
+              {latestSign ? (
+                <Text style={styles.subtle}>{latestSign.label} candidate - {Math.round(latestSign.confidence * 100)}%</Text>
+              ) : (
+                <Text style={styles.subtle}>Add signs from the camera, then speak the message.</Text>
+              )}
+            </View>
+            <Ionicons color={colors.primaryDark} name="hand-left-outline" size={20} />
+          </View>
+
+          <Text style={[styles.translationPreview, !translatedText && styles.translationPlaceholder]}>
+            {translatedText || "No signed words selected yet."}
+          </Text>
+
+          <TextInput
+            multiline
+            onChangeText={onChangeSignedText}
+            placeholder="Edit signed message before speaking"
+            placeholderTextColor={colors.muted}
+            style={styles.signedInput}
+            value={editableSignedText}
+          />
+
+          {phraseVariants.length > 0 ? (
+            <View style={styles.variantRow}>
+              {phraseVariants.map((variant) => (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  activeOpacity={0.85}
+                  key={variant}
+                  onPress={() => onSelectVariant?.(variant)}
+                  style={styles.variantButton}
+                >
+                  <Text style={styles.variantText}>{variant}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+
+          <View style={styles.tokenWrap}>
+            {tokens.length === 0 ? (
+              <Text style={styles.tokenHint}>Selected signs will appear here</Text>
+            ) : (
+              tokens.map((token, index) => (
+                <View key={`${token}-${index}`} style={styles.tokenPill}>
+                  <Text style={styles.tokenText}>{token.replace("_", " ")}</Text>
+                </View>
+              ))
+            )}
+          </View>
+
+          <View style={styles.signedActions}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canUseSignedMessage }}
+              activeOpacity={0.85}
+              disabled={!canUseSignedMessage}
+              onPress={onSpeakSignedMessage}
+              style={[styles.signedActionPrimary, !canUseSignedMessage && styles.disabled]}
+            >
+              <Ionicons color={colors.surface} name="volume-high" size={18} />
+              <Text style={styles.signedActionPrimaryText}>Speak</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canUseSignedMessage }}
+              activeOpacity={0.85}
+              disabled={!canUseSignedMessage}
+              onPress={onSaveSignedMessage}
+              style={[styles.signedAction, !canUseSignedMessage && styles.disabled]}
+            >
+              <Ionicons color={colors.primaryDark} name="bookmark-outline" size={18} />
+              <Text style={styles.signedActionText}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canUseSignedMessage }}
+              activeOpacity={0.85}
+              disabled={!canUseSignedMessage}
+              onPress={onClearSignedMessage}
+              style={[styles.signedAction, !canUseSignedMessage && styles.disabled]}
+            >
+              <Ionicons color={colors.primaryDark} name="trash-outline" size={18} />
+              <Text style={styles.signedActionText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
+      {!isCompact && selectedQuickPhraseEnvironment ? (
+        <View style={styles.quickPhrasePanel}>
+          <View style={styles.quickPhraseHeader}>
+            <View>
+              <Text style={styles.sectionLabel}>Quick phrases</Text>
+              <Text style={styles.subtle}>Tap to speak and add to the transcript.</Text>
+            </View>
+            <Ionicons color={colors.primaryDark} name="flash-outline" size={20} />
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.quickEnvironmentRow}>
+              {quickPhraseEnvironments.map((environment) => {
+                const isSelected = environment.id === selectedQuickPhraseEnvironment.id;
+                return (
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    activeOpacity={0.85}
+                    key={environment.id}
+                    onPress={() => onSelectQuickPhraseEnvironment?.(environment.id)}
+                    style={[styles.quickEnvironmentButton, isSelected && styles.quickEnvironmentButtonSelected]}
+                  >
+                    <Text style={[styles.quickEnvironmentText, isSelected && styles.quickEnvironmentTextSelected]}>
+                      {environment.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+
+          <View style={styles.quickPhraseGrid}>
+            {selectedQuickPhraseEnvironment.phrases.slice(0, 6).map((phrase) => (
+              <TouchableOpacity
+                accessibilityRole="button"
+                activeOpacity={0.85}
+                key={phrase}
+                onPress={() => onSpeakQuickPhrase?.(phrase)}
+                style={styles.quickPhraseButton}
+              >
+                <Ionicons color={colors.primaryDark} name="volume-high" size={17} />
+                <Text style={styles.quickPhraseText}>{phrase}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       <View style={styles.composer}>
         <TouchableOpacity
@@ -173,6 +353,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700"
   },
+  sectionLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
   headerActions: {
     flexDirection: "row",
     gap: spacing.sm
@@ -187,15 +373,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 44
   },
-  messages: {
-    gap: spacing.sm
+  messagesShell: {
+    maxHeight: 300,
+    minHeight: 96
   },
   compactMessages: {
-    maxHeight: 260
+    maxHeight: 220
+  },
+  messages: {
+    gap: spacing.sm,
+    paddingBottom: 2
   },
   empty: {
     color: colors.muted,
     fontSize: 15,
+    fontWeight: "700",
     lineHeight: 21
   },
   message: {
@@ -230,6 +422,184 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     fontWeight: "700"
+  },
+  signedComposer: {
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  signedComposerHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  translationPreview: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: "900",
+    lineHeight: 29
+  },
+  translationPlaceholder: {
+    color: colors.muted,
+    fontSize: 18
+  },
+  signedInput: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: "700",
+    lineHeight: 24,
+    minHeight: 82,
+    padding: spacing.md,
+    textAlignVertical: "top"
+  },
+  variantRow: {
+    gap: spacing.xs
+  },
+  variantButton: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    minHeight: 42,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs
+  },
+  variantText: {
+    color: colors.primaryDark,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20
+  },
+  tokenWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs
+  },
+  tokenPill: {
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs
+  },
+  tokenText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  tokenHint: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  signedActions: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  signedActionPrimary: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: spacing.sm
+  },
+  signedAction: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: spacing.sm
+  },
+  signedActionPrimaryText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  signedActionText: {
+    color: colors.primaryDark,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  quickPhrasePanel: {
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  quickPhraseHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  quickEnvironmentRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    paddingRight: spacing.sm
+  },
+  quickEnvironmentButton: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    minHeight: 36,
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm
+  },
+  quickEnvironmentButtonSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  quickEnvironmentText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  quickEnvironmentTextSelected: {
+    color: colors.surface
+  },
+  quickPhraseGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  quickPhraseButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    minHeight: 44,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    width: "48%"
+  },
+  quickPhraseText: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 18
   },
   composer: {
     alignItems: "center",

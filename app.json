@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "ASL Conversation Assistant",
+    "name": "Visionary",
     "slug": "asl-conversation-assistant",
     "version": "0.1.0",
     "orientation": "portrait",
@@ -18,10 +18,8 @@
       }
     },
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
-        "CAMERA",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
         "CAMERA",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"

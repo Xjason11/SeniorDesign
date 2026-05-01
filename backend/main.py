@@ -33,6 +33,7 @@ SEQUENCE_WEIGHT = 0.5
 
 class RecognitionRequest(BaseModel):
     image_base64: str
+    allowed_tokens: list[str] | None = None
 
 
 class TrainingSampleRequest(BaseModel):
@@ -43,6 +44,7 @@ class TrainingSampleRequest(BaseModel):
 class SequenceRecognitionRequest(BaseModel):
     frames_base64: list[str]
     live_mode: bool = False
+    allowed_tokens: list[str] | None = None
 
 
 class SequenceTrainingSampleRequest(BaseModel):
@@ -158,7 +160,7 @@ def health():
 
 @app.post("/recognize", response_model=RecognitionResponse)
 def recognize(request: RecognitionRequest):
-    return _recognize_from_landmarks(extract_hand_landmarks(request.image_base64))
+    return _recognize_from_landmarks(extract_hand_landmarks(request.image_base64), request.allowed_tokens)
 
 
 @app.post("/recognize-live", response_model=RecognitionResponse)
@@ -168,7 +170,7 @@ def recognize_live(request: RecognitionRequest):
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
-    return _recognize_from_landmarks(landmarks)
+    return _recognize_from_landmarks(landmarks, request.allowed_tokens)
 
 
 @app.post("/recognize-sequence", response_model=RecognitionResponse)
@@ -181,20 +183,21 @@ def recognize_sequence(request: SequenceRecognitionRequest):
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
-    return _recognize_from_sequence(landmark_frames)
+    return _recognize_from_sequence(landmark_frames, request.allowed_tokens)
 
 
-def _recognize_from_landmarks(landmarks: list[float]):
+def _recognize_from_landmarks(landmarks: list[float], allowed_tokens: list[str] | None = None):
     hand_detected = len(landmarks) > 0
     model = get_classifier()
+    active_tokens = _active_tokens(allowed_tokens)
 
     if hand_detected and model is not None:
-        scores = predict_sign_probabilities(model, landmarks)
+        scores = _restrict_scores(predict_sign_probabilities(model, landmarks), active_tokens)
         token, confidence = _top_prediction(scores)
         label = TOKEN_LABELS[token]
         alternatives = _rank_alternatives(scores)
     else:
-        token = "HELP"
+        token = "HELP" if "HELP" in active_tokens else active_tokens[0]
         label = TOKEN_LABELS[token]
         confidence = 0.58 if hand_detected else 0.35
         alternatives = []
@@ -213,19 +216,24 @@ def _recognize_from_landmarks(landmarks: list[float]):
     )
 
 
-def _recognize_from_sequence(landmark_frames: list[list[float]]):
+def _recognize_from_sequence(landmark_frames: list[list[float]], allowed_tokens: list[str] | None = None):
     detected_frames = [frame for frame in landmark_frames if frame]
     hand_detected = len(detected_frames) > 0
     sequence_model = get_sequence_classifier()
     single_frame_model = get_classifier()
+    active_tokens = _active_tokens(allowed_tokens)
 
     if hand_detected:
         fallback_landmarks = detected_frames[-1]
         single_frame_scores = (
-            predict_sign_probabilities(single_frame_model, fallback_landmarks) if single_frame_model is not None else None
+            _restrict_scores(predict_sign_probabilities(single_frame_model, fallback_landmarks), active_tokens)
+            if single_frame_model is not None
+            else None
         )
         sequence_scores = (
-            predict_sign_sequence_probabilities(sequence_model, landmark_frames) if sequence_model is not None else None
+            _restrict_scores(predict_sign_sequence_probabilities(sequence_model, landmark_frames), active_tokens)
+            if sequence_model is not None
+            else None
         )
 
         if single_frame_scores is not None or sequence_scores is not None:
@@ -233,7 +241,7 @@ def _recognize_from_sequence(landmark_frames: list[list[float]]):
             sequence_reliability = 1.0 if len(detected_frames) >= SEQUENCE_MIN_TRACKED_FRAMES else tracked_frame_ratio * 0.5
             fused_scores: dict[str, float] = {}
 
-            for token in TOKENS:
+            for token in active_tokens:
                 single_score = single_frame_scores.get(token, 0.0) if single_frame_scores is not None else 0.0
                 sequence_score = sequence_scores.get(token, 0.0) if sequence_scores is not None else 0.0
                 fused_scores[token] = (
@@ -260,11 +268,12 @@ def _recognize_from_sequence(landmark_frames: list[list[float]]):
                 landmark_points=_landmark_points(fallback_landmarks),
             )
 
-        return _recognize_from_landmarks(fallback_landmarks)
+        return _recognize_from_landmarks(fallback_landmarks, active_tokens)
 
+    fallback_token = "HELP" if "HELP" in active_tokens else active_tokens[0]
     return RecognitionResponse(
-        token="HELP",
-        label=TOKEN_LABELS["HELP"],
+        token=fallback_token,
+        label=TOKEN_LABELS[fallback_token],
         confidence=0.35,
         hand_detected=False,
         landmark_count=0,
@@ -277,7 +286,19 @@ def _top_prediction(scores: dict[str, float]) -> tuple[str, float]:
     return token, scores[token]
 
 
-def _rank_alternatives(scores: dict[str, float], limit: int = 3) -> list[PredictionAlternative]:
+def _active_tokens(allowed_tokens: list[str] | None) -> list[str]:
+    if not allowed_tokens:
+        return list(TOKENS)
+
+    active_tokens = [token for token in allowed_tokens if token in TOKENS]
+    return active_tokens or list(TOKENS)
+
+
+def _restrict_scores(scores: dict[str, float], active_tokens: list[str]) -> dict[str, float]:
+    return {token: scores.get(token, 0.0) for token in active_tokens}
+
+
+def _rank_alternatives(scores: dict[str, float], limit: int = 6) -> list[PredictionAlternative]:
     ranked_tokens = sorted(scores, key=scores.get, reverse=True)[:limit]
     return [
         PredictionAlternative(

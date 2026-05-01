@@ -32,6 +32,7 @@ export function BackendStatusCard({ isChecking, status, onRefresh }: BackendStat
       <View style={styles.copy}>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.detail}>{detail}</Text>
+        {status?.backendUrl ? <Text style={styles.url}>{status.backendUrl}</Text> : null}
       </View>
       <TouchableOpacity
         accessibilityLabel="Refresh backend status"
@@ -85,6 +86,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 18
+  },
+  url: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "800"
   },
   refreshButton: {
     alignItems: "center",

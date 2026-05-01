@@ -1,7 +1,15 @@
 import * as Speech from "expo-speech";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SafeAreaView, ScrollView, Share, StyleSheet, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  Share,
+  StyleSheet,
+  View
+} from "react-native";
 import { fromByteArray } from "base64-js";
 import { CameraRef, useCameraDevice, useCameraPermission } from "react-native-vision-camera";
 import { AccessibilityModeCard } from "./src/components/AccessibilityModeCard";
@@ -13,6 +21,7 @@ import { ConversationCard } from "./src/components/ConversationCard";
 import { ControlBar } from "./src/components/ControlBar";
 import { DataManagementCard } from "./src/components/DataManagementCard";
 import { DebugScreen } from "./src/components/DebugScreen";
+import { DemoModeCard } from "./src/components/DemoModeCard";
 import { DisplayMode, DisplayModeSelector } from "./src/components/DisplayModeSelector";
 import { LiveDebugStrip } from "./src/components/LiveDebugStrip";
 import { Phase2VocabularyCard } from "./src/components/Phase2VocabularyCard";
@@ -26,7 +35,6 @@ import {
   BackendStatus,
   checkBackendStatus,
   recognizeSignSequenceWithModel,
-  recognizeSignWithModel,
   saveModelSequenceTrainingSample,
   saveModelTrainingSample
 } from "./src/services/modelSignRecognition";
@@ -35,6 +43,7 @@ import {
   defaultQuickPhraseEnvironmentId,
   defaultQuickPhraseEnvironments
 } from "./src/services/quickPhraseDefaults";
+import { demoSignTokens, isDemoSignToken } from "./src/services/signTokens";
 import { colors } from "./src/theme/colors";
 import { spacing } from "./src/theme/spacing";
 import {
@@ -72,6 +81,7 @@ export default function App() {
   const cameraDevice = useCameraDevice(cameraFacing);
   const [tokens, setTokens] = useState<SignToken[]>([]);
   const [latestSign, setLatestSign] = useState<RecognizedSign>();
+  const [pendingSign, setPendingSign] = useState<RecognizedSign>();
   const [displayMode, setDisplayMode] = useState<DisplayMode>("translation");
   const [editableTranslatedText, setEditableTranslatedText] = useState("");
   const [isDisplayModeOpen, setIsDisplayModeOpen] = useState(false);
@@ -92,6 +102,7 @@ export default function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>();
   const [isCheckingBackend, setIsCheckingBackend] = useState(false);
   const [isAccessibilityModeEnabled, setIsAccessibilityModeEnabled] = useState(false);
+  const [isDemoModeEnabled, setIsDemoModeEnabled] = useState(true);
   const [availableVoices, setAvailableVoices] = useState<Speech.Voice[]>([]);
   const [selectedSpeechVoiceId, setSelectedSpeechVoiceId] = useState<string>();
   const [isLoadingVoices, setIsLoadingVoices] = useState(false);
@@ -106,15 +117,19 @@ export default function App() {
   const [hasLoadedPersistedState, setHasLoadedPersistedState] = useState(false);
   const lastLiveTokenRef = useRef<SignToken | undefined>(undefined);
   const lastLiveAcceptedAtRef = useRef(0);
+  const liveNoHandFramesRef = useRef(0);
   const lastPartnerSpeechTranscriptRef = useRef("");
   const partnerSpeechRecognitionRef = useRef<SpeechRecognitionModule | undefined>(undefined);
   const liveLoopTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const translatedText = useMemo(() => assemblePhrase(tokens), [tokens]);
-  const phraseVariants = useMemo(() => createPhraseVariants(translatedText), [translatedText]);
+  const phraseVariants = useMemo(
+    () => createPhraseVariants(translatedText, tokens),
+    [tokens, translatedText]
+  );
   const statementSuggestions = useMemo(
-    () => createStatementSuggestions(latestSign, tokens),
-    [latestSign, tokens]
+    () => createStatementSuggestions(pendingSign, tokens),
+    [pendingSign, tokens]
   );
 
   useEffect(() => {
@@ -141,6 +156,7 @@ export default function App() {
         setSelectedQuickPhraseEnvironmentId(persistedState.settings.selectedQuickPhraseEnvironmentId);
         setSelectedSpeechVoiceId(persistedState.settings.selectedSpeechVoiceId);
         setIsAccessibilityModeEnabled(persistedState.settings.accessibilityModeEnabled);
+        setIsDemoModeEnabled(persistedState.settings.demoModeEnabled);
         setRecognitionMessage("Restored saved phrases, settings, conversation history, and quick phrases.");
       } catch {
         if (!isCancelled) {
@@ -176,7 +192,8 @@ export default function App() {
           displayMode,
           selectedQuickPhraseEnvironmentId,
           selectedSpeechVoiceId,
-          accessibilityModeEnabled: isAccessibilityModeEnabled
+          accessibilityModeEnabled: isAccessibilityModeEnabled,
+          demoModeEnabled: isDemoModeEnabled
         }
       }).catch(() => {
         setRecognitionMessage("Local data could not be saved. The current session is still active.");
@@ -190,6 +207,7 @@ export default function App() {
     displayMode,
     hasLoadedPersistedState,
     isAccessibilityModeEnabled,
+    isDemoModeEnabled,
     quickPhraseEnvironments,
     savedPhrases,
     selectedQuickPhraseEnvironmentId,
@@ -274,7 +292,9 @@ export default function App() {
       return;
     }
 
-    setRecognitionMessage("Live recognition is running. Hold one of the six starter signs steady in frame.");
+    setRecognitionMessage(
+      "Live recognition is running. Hold a sign steady, then add the candidate you want."
+    );
 
     let isCancelled = false;
 
@@ -291,7 +311,7 @@ export default function App() {
 
       liveLoopTimeoutRef.current = setTimeout(() => {
         void runLoop();
-      }, 220);
+      }, isDemoModeEnabled ? 90 : 120);
     };
 
     void runLoop();
@@ -303,26 +323,87 @@ export default function App() {
         liveLoopTimeoutRef.current = undefined;
       }
     };
-  }, [isLiveMode]);
+  }, [isDemoModeEnabled, isLiveMode]);
 
-  function handleRecognizedSign(detectedSign: RecognizedSign, options?: { forceAppend?: boolean }) {
+  function handleRecognizedSign(detectedSign: RecognizedSign, options?: { forceAppend?: boolean; liveMode?: boolean }) {
     setLatestSign(detectedSign);
     setRecognitionHistory((history) => [detectedSign, ...history].slice(0, 8));
 
-    if (!options?.forceAppend && !shouldAutoAppendPrediction(detectedSign)) {
+    if (!options?.forceAppend && !shouldAppendPredictionImmediately(detectedSign, options)) {
+      setPendingSign(detectedSign);
+      const confidence = Math.round(detectedSign.confidence * 100);
       setRecognitionMessage(
-        `${detectedSign.label} is only ${Math.round(
-          detectedSign.confidence * 100
-        )}% confident. Confirm it or choose the correct sign before it is added.`
+        `Model read ${detectedSign.label} at ${confidence}% confidence. Tap Add to use it, or choose the correct sign.`
       );
       return;
     }
 
-    setTokens((currentTokens) => [...currentTokens, detectedSign.token].slice(-5));
+    setPendingSign(undefined);
+    addTokenToTranslation(detectedSign.token);
   }
 
-  function shouldAutoAppendPrediction(detectedSign: RecognizedSign) {
-    return detectedSign.source === "manual" || detectedSign.confidence >= AUTO_APPEND_CONFIDENCE;
+  function getDemoFilteredSign(detectedSign: RecognizedSign): RecognizedSign | undefined {
+    if (!isDemoModeEnabled) {
+      return detectedSign;
+    }
+
+    const demoAlternatives = (detectedSign.alternatives ?? []).filter((alternative) =>
+      isDemoSignToken(alternative.token)
+    );
+
+    if (isDemoSignToken(detectedSign.token)) {
+      return {
+        ...detectedSign,
+        alternatives: demoAlternatives
+      };
+    }
+
+    const demoCandidate = demoAlternatives.find((alternative) => alternative.confidence >= 0.45);
+    if (demoCandidate) {
+      return {
+        ...detectedSign,
+        alternatives: demoAlternatives,
+        confidence: demoCandidate.confidence,
+        label: demoCandidate.label,
+        token: demoCandidate.token
+      };
+    }
+
+    if (isDemoSignToken(detectedSign.sequenceToken) && (detectedSign.sequenceConfidence ?? 0) >= 0.45) {
+      return {
+        ...detectedSign,
+        alternatives: demoAlternatives,
+        confidence: detectedSign.sequenceConfidence ?? detectedSign.confidence,
+        label: detectedSign.sequenceToken.replace("_", " "),
+        token: detectedSign.sequenceToken
+      };
+    }
+
+    if (isDemoSignToken(detectedSign.singleFrameToken) && (detectedSign.singleFrameConfidence ?? 0) >= 0.45) {
+      return {
+        ...detectedSign,
+        alternatives: demoAlternatives,
+        confidence: detectedSign.singleFrameConfidence ?? detectedSign.confidence,
+        label: detectedSign.singleFrameToken.replace("_", " "),
+        token: detectedSign.singleFrameToken
+      };
+    }
+
+    return undefined;
+  }
+
+  function shouldAppendPredictionImmediately(detectedSign: RecognizedSign, options?: { liveMode?: boolean }) {
+    return detectedSign.source === "manual" || options?.liveMode === true;
+  }
+
+  function addTokenToTranslation(token: SignToken) {
+    setTokens((currentTokens) => {
+      if (currentTokens[currentTokens.length - 1] === token) {
+        return currentTokens;
+      }
+
+      return [...currentTokens, token].slice(-5);
+    });
   }
 
   function handleAddPartnerMessage(text: string) {
@@ -585,6 +666,7 @@ export default function App() {
     }
 
     try {
+      const allowedTokens = isDemoModeEnabled ? demoSignTokens : undefined;
       const photo = await takeFeatureSequence(options);
       setLastCaptureBase64(photo.base64);
       setLastCaptureFramesBase64(photo.framesBase64);
@@ -592,9 +674,10 @@ export default function App() {
       let modelErrorMessage: string | undefined;
 
       try {
-        modelSign =
-          (await recognizeSignSequenceWithModel(photo.framesBase64, { liveMode: options?.liveMode })) ??
-          (await recognizeSignWithModel(photo.base64, { liveMode: options?.liveMode }));
+        modelSign = await recognizeSignSequenceWithModel(photo.framesBase64, {
+          allowedTokens,
+          liveMode: Boolean(options?.liveMode)
+        });
       } catch (error) {
         modelErrorMessage = formatErrorMessage(error);
       }
@@ -607,24 +690,38 @@ export default function App() {
         }
         if (!options?.liveMode) {
           setRecognitionMessage("No confident backend model match yet. Check framing, lighting, and backend status.");
+        } else {
+          liveNoHandFramesRef.current += 1;
+          if (liveNoHandFramesRef.current === 1 || liveNoHandFramesRef.current % 10 === 0) {
+            setRecognitionMessage("Looking for a confident sequence prediction. Keep your full hand steady in frame.");
+          }
         }
         return;
       }
+
+      liveNoHandFramesRef.current = 0;
 
       if (options?.liveMode && shouldIgnoreLivePrediction(recognizedSign.token)) {
         return;
       }
 
-      handleRecognizedSign(recognizedSign);
       if (options?.liveMode) {
-        if (shouldAutoAppendPrediction(recognizedSign)) {
-          rememberLivePrediction(recognizedSign.token);
-          setRecognitionMessage(`Live recognition: ${recognizedSign.label} using ${recognizedSign.source}.`);
+        rememberLivePrediction(recognizedSign.token);
+      }
+
+      const demoFilteredSign = getDemoFilteredSign(recognizedSign);
+      if (!demoFilteredSign) {
+        if (!options?.liveMode) {
+          setRecognitionMessage("No confident sign match yet. Hold your hand steady and try again.");
         }
+        return;
+      }
+
+      handleRecognizedSign(demoFilteredSign, { liveMode: options?.liveMode });
+      if (options?.liveMode) {
+        setRecognitionMessage(`Live recognition: ${demoFilteredSign.label}.`);
       } else {
-        if (shouldAutoAppendPrediction(recognizedSign)) {
-          setRecognitionMessage(`Captured frame recognized as ${recognizedSign.label} using ${recognizedSign.source}.`);
-        }
+        setRecognitionMessage(`Capture candidate: ${demoFilteredSign.label}. Tap Add to include it.`);
       }
     } catch {
       if (!options?.liveMode) {
@@ -641,6 +738,10 @@ export default function App() {
   }
 
   function shouldIgnoreLivePrediction(token: SignToken) {
+    if (isDemoModeEnabled) {
+      return false;
+    }
+
     return lastLiveTokenRef.current === token && Date.now() - lastLiveAcceptedAtRef.current < 900;
   }
 
@@ -681,7 +782,7 @@ export default function App() {
     }
 
     const snapshot = await cameraRef.current.takeSnapshot();
-    const encodedSnapshot = await snapshot.toEncodedImageDataAsync("jpg", options?.liveMode ? 45 : 65);
+    const encodedSnapshot = await snapshot.toEncodedImageDataAsync("jpg", 70);
     const base64 = fromByteArray(new Uint8Array(encodedSnapshot.buffer));
 
     return base64;
@@ -702,11 +803,13 @@ export default function App() {
     setTokens([]);
     setEditableTranslatedText("");
     setLatestSign(undefined);
+    setPendingSign(undefined);
     setIsLiveMode(false);
     setLastCaptureBase64(undefined);
     setLastCaptureFramesBase64([]);
     lastLiveTokenRef.current = undefined;
     lastLiveAcceptedAtRef.current = 0;
+    liveNoHandFramesRef.current = 0;
     if (liveLoopTimeoutRef.current) {
       clearTimeout(liveLoopTimeoutRef.current);
       liveLoopTimeoutRef.current = undefined;
@@ -730,33 +833,46 @@ export default function App() {
   }
 
   function handleAcceptPrediction() {
-    if (!latestSign) {
+    if (!pendingSign) {
       return;
     }
 
-    setTokens((currentTokens) => {
-      if (currentTokens[currentTokens.length - 1] === latestSign.token) {
-        return currentTokens;
-      }
+    addTokenToTranslation(pendingSign.token);
+    setPendingSign(undefined);
+    setRecognitionMessage(`Added ${pendingSign.label} to the translation.`);
+  }
 
-      return [...currentTokens, latestSign.token].slice(-5);
-    });
-    setRecognitionMessage(`Confirmed ${latestSign.label}.`);
+  function handleIgnorePrediction() {
+    if (!pendingSign) {
+      return;
+    }
+
+    const ignoredLabel = pendingSign.label;
+    setPendingSign(undefined);
+    setRecognitionMessage(`Ignored ${ignoredLabel}. Keep signing for the next prediction.`);
   }
 
   function handleSelectStatementSuggestion(text: string, suggestionTokens: SignToken[]) {
     setTokens(suggestionTokens.slice(-5));
     setEditableTranslatedText(text);
+    setPendingSign(undefined);
     setRecognitionMessage("Statement selected. Edit it if needed, then speak or save it.");
   }
 
   async function handleCorrectPrediction(token: SignToken) {
+    if (isDemoModeEnabled && !isDemoSignToken(token)) {
+      setRecognitionMessage("That sign is not in the active recognition set.");
+      return;
+    }
+
     if ((!lastCaptureBase64 && lastCaptureFramesBase64.length === 0) || isSavingCorrection) {
       return;
     }
 
     setIsSavingCorrection(true);
-    setRecognitionMessage(`Saving correction as ${token.replace("_", " ")}...`);
+    addTokenToTranslation(token);
+    setPendingSign(undefined);
+    setRecognitionMessage(`Added ${token.replace("_", " ")}. Saving correction for future training...`);
 
     try {
       const [savedSequence, savedSingle] = await Promise.all([
@@ -767,13 +883,13 @@ export default function App() {
       ]);
       const saved = savedSequence || savedSingle;
       if (saved) {
-        setRecognitionMessage(`Correction saved as ${token.replace("_", " ")}. Retrain the backend to apply it.`);
+        setRecognitionMessage(`Added ${token.replace("_", " ")} and saved the correction. Retrain the backend to apply it.`);
         return;
       }
 
-      setRecognitionMessage("Correction was not saved. The backend did not detect usable hand landmarks.");
+      setRecognitionMessage(`Added ${token.replace("_", " ")}. Correction was not saved because no usable hand landmarks were detected.`);
     } catch {
-      setRecognitionMessage("Correction failed. Check that the backend is still running.");
+      setRecognitionMessage(`Added ${token.replace("_", " ")}. Correction save failed; check that the backend is still running.`);
     } finally {
       setIsSavingCorrection(false);
     }
@@ -782,11 +898,32 @@ export default function App() {
   return (
     <SafeAreaView style={[styles.safeArea, isAccessibilityModeEnabled && styles.accessibleSafeArea]}>
       <StatusBar style={isAccessibilityModeEnabled ? "light" : "dark"} />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+        style={styles.keyboardAvoider}
+      >
+        <ScrollView
+          automaticallyAdjustKeyboardInsets
+          contentContainerStyle={styles.content}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={styles.scroll}
+        >
         <AppHeader />
         <AccessibilityModeCard
           isEnabled={isAccessibilityModeEnabled}
           onToggle={() => setIsAccessibilityModeEnabled((enabled) => !enabled)}
+        />
+        <DemoModeCard
+          isEnabled={isDemoModeEnabled}
+          onToggle={() => {
+            setIsDemoModeEnabled((enabled) => !enabled);
+            setTokens([]);
+            setLatestSign(undefined);
+            setPendingSign(undefined);
+          }}
         />
         <BackendStatusCard
           isChecking={isCheckingBackend}
@@ -795,6 +932,7 @@ export default function App() {
         />
         <CameraPanel
           cameraRef={cameraRef}
+          device={cameraDevice}
           facing={cameraFacing}
           hasPermission={hasPermission}
           isDeviceReady={cameraDevice !== undefined}
@@ -811,27 +949,17 @@ export default function App() {
           onCapture={handleCaptureSign}
           onToggleLiveMode={() => setIsLiveMode((enabled) => !enabled)}
         />
-        {displayMode === "conversation" ? (
-          <ConversationCard
-            interimTranscript={partnerSpeechDraft}
-            isCompact
-            isListening={isPartnerListening}
-            messages={conversationMessages}
-            onAddPartnerMessage={handleAddPartnerMessage}
-            onClearConversation={() => setConversationMessages([])}
-            onStartListening={handleStartPartnerListening}
-            onStopListening={handleStopPartnerListening}
-            onShareConversation={handleShareConversation}
-            speechStatus={partnerSpeechStatus}
-          />
+        {displayMode === "debug" ? (
+          <LiveDebugStrip latestSign={latestSign?.source === "model" ? latestSign : undefined} />
         ) : null}
-        <LiveDebugStrip latestSign={latestSign?.source === "model" ? latestSign : undefined} />
         <PredictionFeedbackCard
+          allowedTokens={isDemoModeEnabled ? demoSignTokens : undefined}
           canSubmitFeedback={Boolean(lastCaptureBase64) || lastCaptureFramesBase64.length > 0}
           isSavingCorrection={isSavingCorrection}
-          latestSign={latestSign}
+          latestSign={pendingSign}
           onAcceptPrediction={handleAcceptPrediction}
           onCorrectPrediction={handleCorrectPrediction}
+          onIgnorePrediction={handleIgnorePrediction}
           onSelectStatementSuggestion={handleSelectStatementSuggestion}
           statementSuggestions={statementSuggestions}
         />
@@ -878,34 +1006,64 @@ export default function App() {
             voices={availableVoices}
           />
         ) : displayMode === "vocabulary" ? (
-          <Phase2VocabularyCard />
+          <Phase2VocabularyCard
+            isDemoModeEnabled={isDemoModeEnabled}
+            onToggleDemoMode={() => {
+              setIsDemoModeEnabled((enabled) => !enabled);
+              setTokens([]);
+              setLatestSign(undefined);
+              setPendingSign(undefined);
+            }}
+          />
         ) : displayMode === "conversation" ? (
-          <TranslationCard
-            editableText={editableTranslatedText}
+          <ConversationCard
+            canUseSignedMessage={editableTranslatedText.trim().length > 0}
+            editableSignedText={editableTranslatedText}
+            interimTranscript={partnerSpeechDraft}
+            isListening={isPartnerListening}
             latestSign={latestSign}
-            onChangeEditableText={setEditableTranslatedText}
+            messages={conversationMessages}
+            onAddPartnerMessage={handleAddPartnerMessage}
+            onChangeSignedText={setEditableTranslatedText}
+            onClearConversation={() => setConversationMessages([])}
+            onClearSignedMessage={handleClear}
+            onSaveSignedMessage={handleSave}
             onSelectVariant={setEditableTranslatedText}
+            onSelectQuickPhraseEnvironment={setSelectedQuickPhraseEnvironmentId}
+            onSpeakSignedMessage={handleSpeak}
+            onSpeakQuickPhrase={handleQuickPhrase}
+            onStartListening={handleStartPartnerListening}
+            onStopListening={handleStopPartnerListening}
+            onShareConversation={handleShareConversation}
             phraseVariants={phraseVariants}
+            quickPhraseEnvironments={quickPhraseEnvironments}
+            selectedQuickPhraseEnvironmentId={selectedQuickPhraseEnvironmentId}
+            speechStatus={partnerSpeechStatus}
             tokens={tokens}
             translatedText={translatedText}
           />
         ) : (
           <DebugScreen backendStatus={backendStatus} recognitionHistory={recognitionHistory} />
         )}
-        <ControlBar
-          canUseOutput={editableTranslatedText.trim().length > 0}
-          onClear={handleClear}
-          onSave={handleSave}
-          onSpeak={handleSpeak}
-        />
-        <DataManagementCard
-          onClearSavedPhrases={handleClearSavedPhrases}
-          onClearTranscript={handleClearTranscript}
-          onResetQuickPhrases={handleResetQuickPhrases}
-        />
-        <SavedPhrases phrases={savedPhrases} />
+        {displayMode !== "conversation" ? (
+          <>
+            <ControlBar
+              canUseOutput={editableTranslatedText.trim().length > 0}
+              onClear={handleClear}
+              onSave={handleSave}
+              onSpeak={handleSpeak}
+            />
+            <DataManagementCard
+              onClearSavedPhrases={handleClearSavedPhrases}
+              onClearTranscript={handleClearTranscript}
+              onResetQuickPhrases={handleResetQuickPhrases}
+            />
+            <SavedPhrases phrases={savedPhrases} />
+          </>
+        ) : null}
         <View style={styles.bottomSpacer} />
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -926,12 +1084,19 @@ const styles = StyleSheet.create({
   accessibleSafeArea: {
     backgroundColor: colors.cameraDark
   },
+  keyboardAvoider: {
+    flex: 1
+  },
+  scroll: {
+    flex: 1
+  },
   content: {
     gap: spacing.md,
-    padding: spacing.md
+    padding: spacing.md,
+    paddingBottom: spacing.xl
   },
   bottomSpacer: {
-    height: spacing.md
+    height: spacing.xl
   }
 });
 
@@ -949,15 +1114,19 @@ function slugify(value: string) {
     .replace(/(^-|-$)/g, "");
 }
 
-function createPhraseVariants(text: string) {
+function createPhraseVariants(text: string, tokens: SignToken[]) {
   const trimmedText = text.trim();
   if (!trimmedText) {
     return [];
   }
 
+  const tokenVariants = getSignedPhraseVariants(tokens);
+  if (tokenVariants.length > 0) {
+    return tokenVariants.filter((variant) => variant !== trimmedText).slice(0, 3);
+  }
+
   const withoutPeriod = trimmedText.replace(/[.?!]+$/g, "");
   const variants = [
-    trimmedText,
     `Please ${lowercaseFirstLetter(withoutPeriod)}.`,
     `${withoutPeriod}. Thank you.`,
     `Can you help me with this: ${lowercaseFirstLetter(withoutPeriod)}?`
@@ -1009,24 +1178,107 @@ function addStatementSuggestion(suggestions: StatementSuggestion[], suggestion: 
   suggestions.push(suggestion);
 }
 
-function getTokenStatementSuggestions(token: SignToken): string[] {
-  const suggestions: Partial<Record<SignToken, string[]>> = {
-    AGAIN: ["Please repeat that.", "Can you say that again?"],
-    BATHROOM: ["Where is the bathroom?", "I need the bathroom."],
-    CALL: ["Please call someone.", "I need someone to call for help."],
-    DOCTOR: ["I need a doctor.", "Where is the doctor?"],
-    FOOD: ["I need food.", "May I have food, please?"],
-    HELP: ["I need help.", "Please help me."],
-    HOSPITAL: ["I need a hospital.", "Where is the hospital?"],
-    MEDICINE: ["I need medicine.", "Where is my medicine?"],
-    PAIN: ["I am in pain.", "I am in pain and need a doctor."],
-    SICK: ["I feel sick.", "I feel sick and need a doctor."],
-    WATER: ["May I have water?", "I need water."],
-    WHERE: ["Where is it?", "Can you show me where it is?"],
-    WRITE: ["Please write that down.", "Can you write that for me?"]
-  };
+function getSignedPhraseVariants(tokens: SignToken[]): string[] {
+  if (tokens.length === 0) {
+    return [];
+  }
 
-  return suggestions[token] ?? [assemblePhrase([token])];
+  const recentTokens = tokens.slice(-3);
+  const phraseKey = recentTokens.join("_");
+  const exactVariants = signedPhraseVariantPatterns[phraseKey];
+  if (exactVariants) {
+    return exactVariants;
+  }
+
+  const latestToken = recentTokens[recentTokens.length - 1];
+  return signedTokenVariants[latestToken] ?? [];
+}
+
+const signedPhraseVariantPatterns: Partial<Record<string, string[]>> = {
+  AGAIN_PLEASE: ["Could you say that again, please?", "Please repeat that.", "Can you repeat that for me?"],
+  CALL_DOCTOR: ["Please call a doctor.", "Can you call a doctor for me?", "I need someone to call a doctor."],
+  CALL_HELP: ["Please call someone for help.", "Can you call someone to help me?", "I need help making a call."],
+  EAT_NOW: ["I need to eat now.", "Can I eat now?", "I would like to eat now."],
+  FOOD_PLEASE: ["May I have some food, please?", "Could I have food, please?", "I need food, please."],
+  HELLO_HELP: ["Hello. Can you help me?", "Hi, I need some help.", "Hello, could you help me?"],
+  HELLO_WATER: ["Hello, may I have some water?", "Hi, could I have water?", "Hello. Can you help me get water?"],
+  HELP_BATHROOM: ["Can you help me find the bathroom?", "I need help getting to the bathroom.", "Where is the bathroom?"],
+  HELP_DOCTOR: ["Can you help me get a doctor?", "I need help finding a doctor.", "Please help me call a doctor."],
+  HELP_NOW: ["I need help now.", "Can you help me right now?", "Please help me now."],
+  HELP_WATER: ["Can you help me get water?", "I need help getting some water.", "Could I have some water, please?"],
+  MORE_FOOD: ["Could I have more food?", "More food, please.", "I would like more food."],
+  MORE_WATER: ["Could I have more water?", "More water, please.", "I would like more water."],
+  NO_THANK_YOU: ["No, thank you.", "No thanks.", "I am okay, thank you."],
+  PAIN_DOCTOR: ["I am in pain and need a doctor.", "Can I see a doctor? I am in pain.", "Please get a doctor. I am in pain."],
+  PLEASE_WAIT: ["Please wait.", "Can you wait a moment?", "Please give me a moment."],
+  PLEASE_WRITE: ["Please write that down.", "Can you write that for me?", "Could you write it down, please?"],
+  SICK_DOCTOR: ["I feel sick and need a doctor.", "Can I see a doctor? I feel sick.", "Please get a doctor. I feel sick."],
+  STOP_NOW: ["Please stop now.", "Stop now, please.", "I need you to stop right now."],
+  WATER_PLEASE: ["May I have some water, please?", "Could I have water, please?", "I need water, please."],
+  WHAT_NAME: ["What is your name?", "Can you tell me your name?", "What should I call you?"],
+  WHERE_BATHROOM: ["Where is the bathroom?", "Can you show me where the bathroom is?", "I need to find the bathroom."],
+  WHERE_HOME: ["Where is home?", "Can you help me get home?", "I need to go home."],
+  WHERE_HOSPITAL: ["Where is the hospital?", "Can you show me where the hospital is?", "I need to find the hospital."],
+  WHERE_SCHOOL: ["Where is the school?", "Can you show me where the school is?", "I need to find the school."],
+  WHERE_WORK: ["Where is work?", "Can you show me where work is?", "I need to get to work."],
+  YES_THANK_YOU: ["Yes, thank you.", "Yes, please. Thank you.", "That works, thank you."]
+};
+
+const signedTokenVariants: Record<SignToken, string[]> = {
+  AGAIN: ["Can you say that again?", "Please repeat that.", "Could you repeat that for me?"],
+  BAD: ["That is bad.", "I do not feel good about that.", "Something is wrong."],
+  BATHROOM: ["I need the bathroom.", "Where is the bathroom?", "Can you help me find the bathroom?"],
+  CALL: ["Please call someone.", "Can you make a call for me?", "I need someone to call for help."],
+  COME: ["Please come here.", "Can you come over here?", "I need you to come here."],
+  DOCTOR: ["I need a doctor.", "Can I see a doctor?", "Please get a doctor."],
+  EAT: ["I need to eat.", "Can I have something to eat?", "I would like to eat."],
+  FAMILY: ["I need my family.", "Can you contact my family?", "My family can help me."],
+  FATHER: ["I need my father.", "Can you contact my father?", "My father can help me."],
+  FOOD: ["I need food.", "May I have some food?", "Can I have something to eat?"],
+  FRIEND: ["I need my friend.", "Can you contact my friend?", "My friend can help me."],
+  GO: ["I need to go.", "Can we go now?", "Please help me go."],
+  GOOD: ["That is good.", "I am good.", "This is okay."],
+  HAPPY: ["I am happy.", "That makes me happy.", "I feel happy."],
+  HELLO: ["Hello.", "Hello, how are you?", "Hello. Can you help me?"],
+  HELP: ["I need help.", "Can you help me?", "Please help me."],
+  HOME: ["I need to go home.", "Can you help me get home?", "I want to go home."],
+  HOSPITAL: ["I need a hospital.", "Can you take me to the hospital?", "Where is the hospital?"],
+  HOW: ["How do I do that?", "How does this work?", "Can you show me how?"],
+  LEARN: ["I am learning.", "Can you help me learn this?", "I want to learn."],
+  LIKE: ["I like that.", "I would like that.", "That works for me."],
+  MEDICINE: ["I need medicine.", "Where is my medicine?", "Can you help me with my medicine?"],
+  MORE: ["More, please.", "Can I have more?", "I would like more."],
+  MOTHER: ["I need my mother.", "Can you contact my mother?", "My mother can help me."],
+  NAME: ["What is your name?", "Can you tell me your name?", "My name is..."],
+  NEED: ["I need that.", "Can you help me with that?", "I need something."],
+  NO: ["No.", "No, thank you.", "I do not want that."],
+  NOW: ["I need it now.", "Can we do that now?", "Right now, please."],
+  PAIN: ["I am in pain.", "Something hurts.", "I need help with pain."],
+  PLEASE: ["Please.", "Can you help me, please?", "Please help me with this."],
+  SAD: ["I am sad.", "I feel sad.", "That makes me sad."],
+  SCHOOL: ["I am at school.", "I need to go to school.", "Can you help me with school?"],
+  SICK: ["I feel sick.", "I think I am sick.", "I need help because I feel sick."],
+  SORRY: ["I am sorry.", "Sorry about that.", "Please forgive me."],
+  STOP: ["Please stop.", "Stop, please.", "I need you to stop."],
+  STUDENT: ["I am a student.", "The student needs help.", "Can you help the student?"],
+  TEACHER: ["I need the teacher.", "Can you get the teacher?", "The teacher can help me."],
+  THANK_YOU: ["Thank you.", "Thank you so much.", "I appreciate it."],
+  UNDERSTAND: ["I understand.", "I do not understand.", "Can you explain that again?"],
+  WAIT: ["Please wait.", "Can you wait a moment?", "Please give me a moment."],
+  WANT: ["I want that.", "I would like that.", "Can I have that?"],
+  WATER: ["May I have some water?", "I need water.", "Can you help me get water?"],
+  WHAT: ["What is that?", "What do you mean?", "Can you explain that?"],
+  WHEN: ["When is it?", "When will that happen?", "Can you tell me when?"],
+  WHERE: ["Where is it?", "Can you show me where it is?", "I need help finding it."],
+  WHO: ["Who is that?", "Who can help me?", "Can you tell me who that is?"],
+  WHY: ["Why?", "Why is that happening?", "Can you explain why?"],
+  WORK: ["I am at work.", "I need to go to work.", "Can you help me with work?"],
+  WRITE: ["Please write that down.", "Can you write that for me?", "Could you write it down, please?"],
+  YES: ["Yes.", "Yes, please.", "Yes, that is right."]
+};
+
+function getTokenStatementSuggestions(token: SignToken): string[] {
+  return signedTokenVariants[token] ?? [assemblePhrase([token])];
 }
 
 function lowercaseFirstLetter(value: string) {
